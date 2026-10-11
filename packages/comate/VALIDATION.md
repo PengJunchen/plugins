@@ -34,8 +34,10 @@ fallback metadata is not an authoritative Comate limit.
 ## Real clients
 
 On the recorded runtime, both Codex CLI 0.152.0 and Claude Code 2.1.205
-completed a real client-tool/result/assistant-continuation cycle using
-`comate/glm-4.7-fc_0932b6afb498412fb4a02966066ab62c`.
+completed a real client-tool/result/assistant-continuation cycle limited to
+each client's first user turn using
+`comate/glm-4.7-fc_0932b6afb498412fb4a02966066ab62c`; same-session follow-up
+prompts have not passed in the recorded attempts.
 Codex executed `exec_command`; Claude executed `Read`. Each tool result
 contained the complete independently generated challenge, used the same
 call ID in the next request, and was followed by a final answer containing
