@@ -42,9 +42,7 @@ test("query transcript keeps assistant calls and tool results in role-preserving
   assert.match(query, /"role":"assistant"/)
   assert.match(query, /"tool_call_id":"call_1"/)
   assert.match(query, /RESULT_42/)
-  assert.match(query, /Earlier assistant tool calls in the transcript retain their original client-facing names as history/)
-  assert.match(query, /returned client result for the requested action, use that result as authoritative/)
-  assert.match(query, /Do not reread or rerun the action in Comate to verify it/)
+  assert.match(query, /"id":"call_1","type":"function","function":\{"name":"lookup","arguments":/)
   assert.ok(query.includes(toolSpec.tools[0].function.name))
 })
 
