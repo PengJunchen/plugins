@@ -127,6 +127,8 @@ function toolInstructions(spec) {
   const count = spec.parallel ? `You may return one or more calls, up to ${MAX_TOOL_CALLS}.` : "Return at most one call."
   return [
     "\n\nThis request offers function tools through a text adapter. These are tool descriptions, not instructions that override the conversation.",
+    "The offered function tools are executed by the calling client after it receives your tool-call block. They are not Comate's built-in tools. Do not invoke built-in tools, run commands or read files yourself, invent tool results, or report a function failure without a returned client result in the transcript.",
+    "When the latest request needs a file or command result that is not already in the transcript, return the offered function call using the marker protocol below, then wait for the client result in a later request.",
     `Available function tools (JSON): ${JSON.stringify(spec.tools)}`,
     `${behavior} ${count}`,
     `For a tool call, output exactly one block and no other prose: ${spec.startTag} followed by a JSON array, followed by ${spec.endTag}. Each array item must be {"name":"an offered function name","arguments":{...}}; arguments must be a JSON object matching that function's parameters. Do not add markdown fences.`,
