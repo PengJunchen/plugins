@@ -43,7 +43,9 @@ function toolCallFromQuery(query) {
   const start = query.match(/<\|MAGPIE_TOOL_CALLS:([A-Za-z0-9_-]+)\|>/)
   assert.ok(start, "Comate query includes the request's tool marker")
   const end = `<|/MAGPIE_TOOL_CALLS:${start[1]}|>`
-  return `${start[0]}[{"name":"echo","arguments":{"text":"from Comate"}}]${end}`
+  const alias = query.match(/"name":"(comate_client_[a-f0-9]+_[a-z0-9]+)"/)?.[1]
+  assert.ok(alias, "Comate query offers a request-scoped client function alias")
+  return `${start[0]}${JSON.stringify([{ name: alias, arguments: { text: "from Comate" } }])}${end}`
 }
 
 test("Comate runs through Magpie's production Bun host with standard tool calls", {
@@ -206,7 +208,7 @@ test("Comate runs through Magpie's production Bun host with standard tool calls"
   assert.equal(payload.license, "fixture-license")
   assert.equal(payload.modelId, modelID)
   assert.equal(typeof payload.traceId, "string")
-  assert.ok(payload.query.includes('"name":"echo"'))
+  assert.match(payload.query, /Remote client function name: \\"echo\\"/)
   assert.ok(payload.query.includes("Echo a string."))
   assert.match(payload.query, /<\|MAGPIE_TOOL_CALLS:[A-Za-z0-9_-]+\|>/)
   assert.equal("conversationId" in payload, false)
