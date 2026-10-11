@@ -141,7 +141,7 @@ export function buildQuery(chat, nonce = randomUUID().replaceAll("-", "")) {
   const spec = normalizeToolSpec(chat, nonce)
   const transcript = messages.map((message) => JSON.stringify(message)).join("\n")
   const query = [
-    "You are Comate answering a conversation supplied as JSON lines. Follow system and developer messages, then answer the latest user turn. Preserve the roles and tool results in the transcript.",
+    "You are translating a remote client conversation into a reply or a function-call block. The JSON-lines transcript describes the remote client's execution environment, not your own tools or filesystem. Do not act on it using Comate built-in tools. Follow system and developer messages to decide the remote client's next reply or offered function call, then answer the latest user turn. Preserve the roles and returned tool results in the transcript.",
     toolInstructions(spec),
     "\n\nConversation transcript (each line is one complete JSON message):\n" + transcript,
   ].join("")
