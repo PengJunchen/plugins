@@ -212,3 +212,69 @@ test("request cancellation detaches the caller abort listener immediately", asyn
   assert.ok(cancelRequest.url.endsWith("/trace-fixture/cancel"))
   assert.equal(cancelRequest.init.redirect, "error")
 })
+
+function toolReplyFetch(blockBody) {
+  return async (_url, init) => {
+    const query = JSON.parse(init.body).query
+    const start = query.match(/<\|MAGPIE_TOOL_CALLS:[A-Za-z0-9_-]+\|>/)[0]
+    const end = start.replace("<|", "<|/")
+    const alias = query.match(/"name":"(comate_client_[a-f0-9]+_[a-z0-9]+)"/)[1]
+    const text = `Let me read it.\n${start}${blockBody(alias)}${end}`
+    return new Response(`data: ${JSON.stringify({ kind: "text-delta", delta: text })}\n\ndata: {"type":"task_done","status":"completed"}\n\n`, {
+      headers: { "content-type": "text/event-stream" },
+    })
+  }
+}
+
+function autoToolBody(stream) {
+  return JSON.stringify({
+    model: "fixture-model", stream, tool_choice: "auto",
+    tools: [{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }],
+    messages: [{ role: "user", content: "Read it with lookup." }],
+  })
+}
+
+test("auto replies preserve assistant prose and translate a complete trailing function block", async () => {
+  for (const stream of [false, true]) {
+    const { auth } = await loadedAuth(toolReplyFetch((alias) => JSON.stringify([{ name: alias, arguments: { key: "fresh-fixture" } }])))
+    const response = await auth.fetch(endpoint, { method: "POST", body: autoToolBody(stream) })
+    assert.equal(response.status, 200)
+    const text = await response.text()
+    assert.ok(!text.includes("MAGPIE_TOOL_CALLS"), "protocol markers never reach the client")
+    if (!stream) {
+      const reply = JSON.parse(text).choices[0]
+      assert.equal(reply.message.content, "Let me read it.\n")
+      assert.equal(reply.message.tool_calls[0].function.name, "lookup")
+      assert.equal(reply.message.tool_calls[0].function.arguments, '{"key":"fresh-fixture"}')
+      assert.equal(reply.finish_reason, "tool_calls")
+    } else {
+      const frames = text.split(/\r?\n\r?\n/).filter((f) => f.startsWith("data: {")).map((f) => JSON.parse(f.slice(6)))
+      assert.equal(frames.map((f) => f.choices?.[0]?.delta?.content ?? "").join(""), "Let me read it.\n")
+      const calls = frames.flatMap((f) => f.choices?.[0]?.delta?.tool_calls ?? [])
+      assert.equal(calls.find((c) => c.function?.name)?.function.name, "lookup")
+      assert.equal(calls.map((c) => c.function?.arguments ?? "").join(""), '{"key":"fresh-fixture"}')
+      assert.equal(frames.at(-1).choices[0].finish_reason, "tool_calls")
+      assert.match(text, /data: \[DONE\]/)
+    }
+  }
+})
+
+test("malformed auto function blocks return explicit errors without guessed calls or successful completion", async () => {
+  for (const badBlock of ["{invalid-json}", '[{"name":"not_offered","arguments":{}}]']) {
+    for (const stream of [false, true]) {
+      const { auth } = await loadedAuth(toolReplyFetch(() => badBlock))
+      const response = await auth.fetch(endpoint, { method: "POST", body: autoToolBody(stream) })
+      const text = await response.text()
+      assert.equal(response.status, stream ? 200 : 502)
+      assert.ok(!text.includes("MAGPIE_TOOL_CALLS"))
+      assert.ok(!text.includes('"tool_calls":'))
+      assert.ok(!text.includes('"finish_reason":"stop"'))
+      if (stream) {
+        assert.match(text, /data: \{"error":/)
+        assert.match(text, /data: \[DONE\]/)
+      } else {
+        assert.ok(JSON.parse(text).error)
+      }
+    }
+  }
+})

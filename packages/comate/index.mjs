@@ -284,15 +284,14 @@ function toolCallIds(calls, uuid) {
 
 function completionResult(chat, result, toolSpec, uuid) {
   const parsed = parseToolCalls(result.text, toolSpec)
-  const requiresTool = toolSpec.choice === "required" || toolSpec.choice === "named"
-  if (parsed.invalid && requiresTool) {
+  if (parsed.invalid) {
     return { error: `Comate did not produce a valid requested tool call: ${parsed.invalid}` }
   }
-  const calls = parsed.invalid ? [] : parsed.calls
+  const calls = parsed.calls
   const toolCalls = toolCallIds(calls, uuid)
   const message = {
     role: "assistant",
-    content: toolCalls.length ? null : (parsed.invalid ? result.text : parsed.content),
+    content: toolCalls.length ? (parsed.content || null) : parsed.content,
   }
   if (result.reasoning) message.reasoning_content = result.reasoning
   if (toolCalls.length) message.tool_calls = toolCalls
@@ -382,7 +381,7 @@ function streamed(chat, response, task, toolSpec, uuid, license) {
       }
 
       const final = parser.finish()
-      if (final.invalid && requiresTool) {
+      if (final.invalid) {
         yield apiErrorChunk(`Comate did not produce a valid requested tool call: ${final.invalid}`, license)
         yield chunks.done
         return

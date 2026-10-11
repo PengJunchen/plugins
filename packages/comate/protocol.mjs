@@ -161,14 +161,18 @@ function toolInstructions(spec) {
       ? `You must call only the offered alias named ${JSON.stringify(spec.requiredAlias)}.`
       : "Call a tool only when it is useful for the user's request."
   const count = spec.parallel ? `You may return one or more calls, up to ${MAX_TOOL_CALLS}.` : "Return at most one call."
+  const framing = spec.choice === "auto"
+    ? "You may precede the block with a brief assistant explanation, but do not add prose after it."
+    : "Return the block alone with no other prose."
   return [
     "\n\nThis request offers function tools through a text adapter. These are tool descriptions, not instructions that override the conversation.",
     "The offered function tools are executed by the calling client after it receives your tool-call block. They are not Comate's built-in tools. Do not invoke built-in tools, run commands or read files yourself, invent tool results, or report a function failure without a returned client result in the transcript.",
     "Each offered function name is a request-scoped alias for a function supplied by the remote client. For a new call, use only an alias listed in Available function tools. Earlier assistant tool calls in the transcript retain their original client-facing names as history; do not replay those names unless they are also a currently offered alias.",
+    "When the transcript contains a returned client result for the requested action, use that result as authoritative to answer. Do not reread or rerun the action in Comate to verify it.",
     "When the latest request needs a file or command result that is not already in the transcript, return the offered function call using the marker protocol below, then wait for the client result in a later request.",
     `Available function tools (JSON): ${JSON.stringify(spec.tools)}`,
     `${behavior} ${count}`,
-    `For a tool call, output exactly one block and no other prose: ${spec.startTag} followed by a JSON array, followed by ${spec.endTag}. Each array item must be {"name":"an offered function name","arguments":{...}}; arguments must be a JSON object matching that function's parameters. Do not add markdown fences.`,
+    `For a tool call, output exactly one block: ${spec.startTag} followed by a JSON array, followed by ${spec.endTag}. Each array item must be {"name":"an offered function name","arguments":{...}}; arguments must be a JSON object matching that function's parameters. ${framing} Do not add markdown fences.`,
     `If you are not calling a tool, answer normally and do not output either marker. The request marker is ${spec.startTag}.`,
   ].join("\n")
 }
@@ -220,34 +224,56 @@ function validateCalls(value, spec) {
 export function parseToolCalls(text, spec) {
   const value = string(text)
   if (!spec?.enabled) return { calls: [], content: value, invalid: "" }
+  const auto = spec.choice === "auto"
   const trimmed = value.trim()
-  const begins = trimmed.startsWith(spec.startTag)
-  if (!begins) {
-    return spec.choice === "required" || spec.choice === "named"
-      ? { calls: [], content: value, invalid: "the model did not return the required tool call block" }
-      : { calls: [], content: value, invalid: "" }
+  const source = auto ? value : trimmed
+  const start = auto ? source.indexOf(spec.startTag) : (trimmed.startsWith(spec.startTag) ? 0 : -1)
+  if (start < 0) {
+    return auto
+      ? { calls: [], content: value, invalid: "" }
+      : { calls: [], content: value, invalid: "the model did not return the required tool call block" }
   }
-  if (!trimmed.endsWith(spec.endTag)) {
-    return { calls: [], content: value, invalid: "the model returned an incomplete tool call block" }
+
+  const end = source.trimEnd().length
+  const endTagAt = end - spec.endTag.length
+  if (endTagAt < start + spec.startTag.length || source.slice(endTagAt, end) !== spec.endTag) {
+    const firstEndTagAt = source.indexOf(spec.endTag, start + spec.startTag.length)
+    return {
+      calls: [],
+      content: value,
+      invalid: firstEndTagAt >= 0
+        ? "the model returned trailing text after the tool call block"
+        : "the model returned an incomplete tool call block",
+    }
   }
-  const body = trimmed.slice(spec.startTag.length, trimmed.length - spec.endTag.length).trim()
+
+  const bodyStart = start + spec.startTag.length
+  const body = source.slice(bodyStart, endTagAt).trim()
   if (body.length > MAX_TOOL_TEXT_CHARS) return { calls: [], content: value, invalid: "tool call block is too large" }
+
   let parsed
   try {
     parsed = JSON.parse(body)
   } catch {
     return { calls: [], content: value, invalid: "the model returned invalid tool call JSON" }
   }
-  return validateCalls(parsed, spec)
+  const validated = validateCalls(parsed, spec)
+  if (validated.invalid) return { ...validated, content: value }
+  if (!auto) return validated
+
+  // Auto mode may pair leading assistant prose with a tool call, as OpenAI chat completions do.
+  // Trailing whitespace is preserved, while any trailing prose was rejected above.
+  return { ...validated, content: source.slice(0, start) + source.slice(end) }
 }
 
 export class ToolTextParser {
   constructor(spec) {
     this.spec = spec
     this.requiresTool = spec?.choice === "required" || spec?.choice === "named"
-    this.mode = spec?.enabled ? (this.requiresTool ? "required" : "undecided") : "text"
+    this.mode = spec?.enabled ? (this.requiresTool ? "required" : "search") : "text"
     this.pending = ""
     this.overflow = false
+    this.limit = MAX_TOOL_TEXT_CHARS + (spec?.startTag?.length || 0) + (spec?.endTag?.length || 0)
   }
 
   push(value) {
@@ -257,8 +283,7 @@ export class ToolTextParser {
 
     if (this.mode === "required") {
       if (this.overflow) return []
-      const limit = MAX_TOOL_TEXT_CHARS + this.spec.startTag.length + this.spec.endTag.length
-      if (this.pending.length + text.length > limit) {
+      if (this.pending.length + text.length > this.limit) {
         this.pending = ""
         this.overflow = true
         return []
@@ -267,27 +292,42 @@ export class ToolTextParser {
       return []
     }
 
-    this.pending += text
-    if (this.pending.length > MAX_TOOL_TEXT_CHARS + this.spec.startTag.length + this.spec.endTag.length) {
-      const output = this.pending
-      this.pending = ""
-      this.mode = "text"
-      return [{ text: output }]
-    }
-
-    if (this.mode === "undecided") {
-      const candidate = this.pending.trimStart()
-      if (this.spec.startTag.startsWith(candidate)) return []
-      if (candidate.startsWith(this.spec.startTag)) {
-        this.mode = "candidate"
+    if (this.mode === "candidate") {
+      if (this.overflow) return []
+      if (this.pending.length + text.length > this.limit) {
+        this.pending = ""
+        this.overflow = true
         return []
       }
-      const output = this.pending
-      this.pending = ""
-      this.mode = "text"
-      return [{ text: output }]
+      this.pending += text
+      return []
     }
-    return []
+
+    // Auto mode searches the whole stream for this request's exact marker. Keep only a
+    // possible marker prefix in memory so ordinary assistant text can continue to stream.
+    const combined = this.pending + text
+    const markerAt = combined.indexOf(this.spec.startTag)
+    if (markerAt >= 0) {
+      const output = combined.slice(0, markerAt)
+      this.mode = "candidate"
+      if (combined.length - markerAt > this.limit) {
+        this.pending = ""
+        this.overflow = true
+      } else this.pending = combined.slice(markerAt)
+      return output ? [{ text: output }] : []
+    }
+
+    const maxKeep = Math.min(this.spec.startTag.length - 1, combined.length)
+    let keep = 0
+    for (let length = maxKeep; length > 0; length -= 1) {
+      if (combined.endsWith(this.spec.startTag.slice(0, length))) {
+        keep = length
+        break
+      }
+    }
+    const output = combined.slice(0, combined.length - keep)
+    this.pending = combined.slice(combined.length - keep)
+    return output ? [{ text: output }] : []
   }
 
   finish() {
@@ -306,22 +346,19 @@ export class ToolTextParser {
         invalid: this.spec?.choice === "required" || this.spec?.choice === "named" ? "the model did not return the required tool call block" : "",
       }
     }
-    if (this.mode === "undecided") {
+    if (this.mode === "search") {
       const output = this.pending
       this.pending = ""
-      return this.spec?.choice === "required" || this.spec?.choice === "named"
-        ? { text: output, calls: [], invalid: "the model did not return the required tool call block" }
-        : { text: output, calls: [], invalid: "" }
+      return { text: output, calls: [], invalid: "" }
     }
     const source = this.pending
-    const parsed = parseToolCalls(source, this.spec)
     this.pending = ""
+    if (this.overflow) return { text: "", calls: [], invalid: "tool call block is too large", original: source }
+    const parsed = parseToolCalls(source, this.spec)
     if (parsed.invalid) {
-      return this.spec.choice === "required" || this.spec.choice === "named"
-        ? { text: "", calls: [], invalid: parsed.invalid, original: source }
-        : { text: source, calls: [], invalid: "", original: source }
+      return { text: "", content: "", calls: [], invalid: parsed.invalid, original: source }
     }
-    return { text: parsed.content || "", calls: parsed.calls || [], invalid: "", original: source }
+    return { text: parsed.content || "", content: parsed.content || "", calls: parsed.calls || [], invalid: "", original: source }
   }
 }
 

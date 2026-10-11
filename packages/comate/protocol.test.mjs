@@ -5,6 +5,7 @@ import {
   buildQuery,
   consumeComateSSE,
   events,
+  MAX_TOOL_TEXT_CHARS,
   newState,
   parseToolCalls,
   piecesOf,
@@ -19,6 +20,10 @@ const tools = [
 
 function specFor(toolChoice = "auto", offered = tools) {
   return buildQuery({ tools: offered, tool_choice: toolChoice, messages: [] }, "deadbeef").toolSpec
+}
+
+function callBlock(spec, value = [{ name: spec.tools[0].function.name, arguments: { key: "x" } }]) {
+  return `${spec.startTag}${JSON.stringify(value)}${spec.endTag}`
 }
 
 async function* byteChunks(...values) {
@@ -38,6 +43,8 @@ test("query transcript keeps assistant calls and tool results in role-preserving
   assert.match(query, /"tool_call_id":"call_1"/)
   assert.match(query, /RESULT_42/)
   assert.match(query, /Earlier assistant tool calls in the transcript retain their original client-facing names as history/)
+  assert.match(query, /returned client result for the requested action, use that result as authoritative/)
+  assert.match(query, /Do not reread or rerun the action in Comate to verify it/)
   assert.ok(query.includes(toolSpec.tools[0].function.name))
 })
 
@@ -118,17 +125,54 @@ test("parallel_tool_calls still accepts or rejects multiple aliased calls as req
   assert.match(parseToolCalls(makeBlock(single), single).invalid, /parallel tool calls are disabled/)
 })
 
-test("text parser recognizes a fragmented tool marker after leading whitespace", () => {
+test("auto parser streams leading prose and recognizes the fragmented current marker without leaking it", () => {
   const spec = specFor("auto")
-  const block = `${spec.startTag}[{"name":"lookup","arguments":{"key":"x"}}]${spec.endTag}`
+  const prefix = "Let me try executing the command now.\n"
+  const suffix = " \n"
+  const block = callBlock(spec)
   const parser = new ToolTextParser(spec)
-  assert.deepEqual(parser.push(` \n${block.slice(0, 9)}`), [])
-  assert.deepEqual(parser.push(block.slice(9, 25)), [])
-  assert.deepEqual(parser.push(block.slice(25)), [])
+  const output = []
+  for (const chunk of [prefix.slice(0, 11), `${prefix.slice(11)}${spec.startTag.slice(0, 9)}`, `${spec.startTag.slice(9)}${block.slice(spec.startTag.length)}${suffix}`]) {
+    output.push(...parser.push(chunk).map((piece) => piece.text))
+  }
   const result = parser.finish()
   assert.equal(result.invalid, "")
   assert.equal(result.calls[0].name, "lookup")
-  assert.equal(result.text, "")
+  assert.equal(output.join(""), prefix)
+  assert.equal(result.text, suffix)
+  assert.equal(result.content, suffix)
+  assert.equal(output.join("") + result.text, prefix + suffix)
+  assert.equal(output.join("").includes(spec.startTag), false)
+  assert.equal(parseToolCalls(`${prefix}${block}${suffix}`, spec).content, prefix + suffix)
+})
+
+test("auto parser preserves UTF-8 prose while a marker is split across byte chunks", () => {
+  const spec = specFor("auto")
+  const prefix = "你好 🧭\n"
+  const block = callBlock(spec)
+  const bytes = new TextEncoder().encode(`${prefix}${block}`)
+  const prefixBytes = new TextEncoder().encode(prefix).length
+  const splitInsideUtf8 = 1
+  const splitInsideTag = prefixBytes + Math.floor(new TextEncoder().encode(spec.startTag).length / 2)
+  const chunks = [bytes.slice(0, splitInsideUtf8), bytes.slice(splitInsideUtf8, splitInsideTag), bytes.slice(splitInsideTag)]
+  const decoder = new TextDecoder()
+  const parser = new ToolTextParser(spec)
+  const output = []
+  for (const chunk of chunks) output.push(...parser.push(decoder.decode(chunk, { stream: true })).map((piece) => piece.text))
+  output.push(...parser.push(decoder.decode()).map((piece) => piece.text))
+  const result = parser.finish()
+  assert.equal(result.invalid, "")
+  assert.equal(result.calls[0].name, "lookup")
+  assert.equal(output.join(""), prefix)
+})
+
+test("auto ordinary text continues streaming before finish", () => {
+  const parser = new ToolTextParser(specFor("auto"))
+  assert.deepEqual(parser.push("A normal assistant answer streams immediately."), [
+    { text: "A normal assistant answer streams immediately." },
+  ])
+  assert.equal(parser.pending, "")
+  assert.deepEqual(parser.finish(), { text: "", calls: [], invalid: "" })
 })
 
 test("required tool mode buffers ordinary text until final validation", () => {
@@ -141,11 +185,74 @@ test("required tool mode buffers ordinary text until final validation", () => {
   assert.deepEqual(result.calls, [])
 })
 
+test("required and named modes reject assistant prose before a tool block", () => {
+  for (const choice of ["required", { type: "function", function: { name: "lookup" } }]) {
+    const spec = specFor(choice)
+    const block = callBlock(spec, [{ name: spec.requiredAlias || spec.tools[0].function.name, arguments: {} }])
+    const parser = new ToolTextParser(spec)
+    assert.deepEqual(parser.push(`Preface\n${block}`), [])
+    assert.match(parser.finish().invalid, /required tool call block/)
+  }
+})
+
 test("unknown tool names and malformed marker blocks are rejected", () => {
   const spec = specFor("auto")
   const unknown = `${spec.startTag}[{"name":"not_offered","arguments":{}}]${spec.endTag}`
   assert.match(parseToolCalls(unknown, spec).invalid, /tool name was not offered/)
   assert.match(parseToolCalls(`${spec.startTag}{bad}${spec.endTag}`, spec).invalid, /invalid tool call JSON/)
+})
+
+test("auto matched markers fail closed for malformed JSON, unknown aliases, multiple blocks, and trailing prose", () => {
+  const spec = specFor("auto")
+  const prefix = "I tried it.\n"
+  const valid = callBlock(spec)
+  const invalidCases = [
+    [`${prefix}${spec.startTag}{bad}${spec.endTag}`, /invalid tool call JSON/],
+    [`${prefix}${spec.startTag}${JSON.stringify([{ name: "not_offered", arguments: {} }])}${spec.endTag}`, /tool name was not offered/],
+    [`${prefix}${valid}${valid}`, /invalid tool call JSON/],
+    [`${prefix}${valid} extra prose`, /trailing text|incomplete tool call block/],
+  ]
+  for (const [source, message] of invalidCases) {
+    const parser = new ToolTextParser(spec)
+    const emitted = parser.push(source).map((piece) => piece.text).join("")
+    const result = parser.finish()
+    assert.equal(emitted, prefix)
+    assert.match(result.invalid, message)
+    assert.deepEqual(result.calls, [])
+  }
+})
+
+test("auto tool-call candidate is bounded and overflow becomes invalid", () => {
+  const spec = specFor("auto")
+  const parser = new ToolTextParser(spec)
+  const prefix = "Preface\n"
+  const emitted = parser.push(`${prefix}${spec.startTag}${"x".repeat(MAX_TOOL_TEXT_CHARS + spec.endTag.length + 1)}`)
+  assert.deepEqual(emitted, [{ text: prefix }])
+  assert.equal(parser.overflow, true)
+  assert.equal(parser.pending, "")
+  assert.match(parser.finish().invalid, /tool call block is too large/)
+})
+
+test("marker strings inside JSON arguments remain data and other nonces never create calls", () => {
+  const spec = specFor("auto")
+  const key = `${spec.startTag}literal${spec.endTag}${spec.startTag}${spec.endTag}`
+  const block = callBlock(spec, [{ name: spec.tools[0].function.name, arguments: { key } }])
+  const parser = new ToolTextParser(spec)
+  assert.deepEqual(parser.push(`Preface\n${block}`), [{ text: "Preface\n" }])
+  const result = parser.finish()
+  assert.equal(result.invalid, "")
+  assert.equal(JSON.parse(result.calls[0].arguments).key, key)
+  assert.deepEqual(result.calls, parseToolCalls(`Preface\n${block}`, spec).calls)
+
+  const foreign = block.replaceAll("deadbeef", "other-request")
+  for (const text of [foreign, spec.endTag]) {
+    const other = new ToolTextParser(spec)
+    const emitted = other.push(text).map((p) => p.text).join("")
+    const final = other.finish()
+    assert.deepEqual(final.calls, [])
+    assert.equal(emitted + final.text, text)
+    assert.deepEqual(parseToolCalls(text, spec).calls, [])
+  }
 })
 
 test("cumulative patches emit only their new suffix and ignore type-only patches", () => {
