@@ -1,11 +1,11 @@
 # Comate provider plugin for Magpie
 
-This experimental plugin translates Comate's local text service into
-OpenAI-compatible Chat Completions for Magpie's provider gateway. Magpie can
-translate Responses, Anthropic Messages and Gemini requests into that format.
-Real Codex and Claude Code tool-call-and-continuation acceptance is still
-pending. The last previously reported full live API run failed the Responses
-required-tool case with a 502; it was not an all-API pass.
+This experimental plugin sends text conversations to Comate's local service
+and exposes OpenAI-compatible Chat Completions through Magpie's provider
+gateway. Magpie can translate Responses, Anthropic Messages and Gemini
+requests into that format. Function calls use prompt-based emulation;
+model compliance varies. See the source validation record for the tested
+clients, exact live model IDs and failed attempts.
 
 The candidate is not yet listed in the market or published on npm. See
 [VALIDATION.md](./VALIDATION.md) in the source checkout for evidence, remaining
@@ -66,24 +66,35 @@ on refresh. A failed refresh discards that credential's aliases.
 
 Only positive integer `limit.context`, `limit.input` and `limit.output` values
 in a live model record are carried into model metadata. Missing context or
-output limits remain `0` (the host's unknown sentinel). No real `/list-model`
-response with verified context limits is available for this revision; these
-field mappings are covered by synthetic tests only. A real account response
-must establish the field names, units and values before claiming a usable
-context size. A name such as "128k" is not evidence of the account's window.
+output limits remain `0` (the host's unknown sentinel). The inspected real `/list-model`
+response supplied no context or output limit fields. Numeric field mappings
+are covered by synthetic tests; no usable account window is claimed from
+those fixtures or a client's fallback metadata. A name such as "128k" is not
+evidence of the account's window.
 
 ## Function tools
 
 Function tools use prompt-based emulation over Comate's text interface.
-Magpie passes the conversation, function names, descriptions, and schemas to
-Comate as text. When Comate returns the complete request-specific tool marker
+Magpie passes the conversation, descriptions, and schemas to Comate as text.
+The adapter gives each offered function a request-specific alias to reduce
+collisions with Comate's built-in tool names, then maps accepted calls back
+to the client's original names. Conversation history keeps the original
+names and correlation IDs. When Comate returns the complete tool marker
 block with valid JSON arguments and offered function names, the plugin emits
 standard OpenAI `tool_calls`; Magpie translates them to the calling API's
 format. The calling client executes the function and returns its result in the
 next request.
 
-This is not native Comate tool execution. The adapter accepts standard
-function tools, supports `auto`, `none`, `required`, and named function choices,
+In `auto` mode, ordinary assistant prose may precede a complete function block;
+the prose is preserved and the block becomes a client call. A matching block
+with malformed JSON, an unoffered function, trailing prose or a missing end
+marker produces an API error. The adapter does not guess or repair calls.
+
+The emitted function calls are emulated client calls. Comate's local service
+can also use its own tools while interpreting a prompt; those actions do not
+count as client function execution, and the adapter cannot apply a client's
+sandbox to that service. Its `Ask` mode is not a verified tools-off boundary.
+The adapter accepts standard function tools, supports `auto`, `none`, `required`, and named function choices,
 and rejects `strict: true`. It checks that names were offered and arguments
 are JSON objects, but does not validate arguments against the full JSON
 Schema. Model compliance with the prompt protocol is not guaranteed, and the
@@ -92,7 +103,9 @@ successful required call. For `required` and named choices, streamed ordinary
 text is held until tool-call validation, and Comate reasoning text is discarded
 instead of returned. If the required block is missing or malformed, the stream
 ends with an API error and no successful completion. A Comate-native `TOOL`
-stream element is not treated as a standard function call.
+stream element causes an error and a best-effort cancellation request, including when its
+content is structured or absent. This detection does not prevent the local
+service from starting a native action before the event arrives.
 
 No forked gateway change is required. The plugin's non-stream path collects
 the entire Comate SSE response and returns 502 if the task fails, even after
