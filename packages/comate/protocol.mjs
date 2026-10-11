@@ -368,6 +368,7 @@ function chunkPieces(chunk, state) {
       const type = string(element.type)
       if (!id) throw new Error("Comate added a cumulative element without an id")
       if (!type) throw new Error("Comate added an element without a type")
+      if (type === "TOOL") throw new Error("Comate emitted a native TOOL element the text adapter cannot translate")
       if (type) state.types.set(id, type)
       return typeof element.content === "string" ? elementPieces(type, novel(state, id, element.content)) : []
     }
@@ -377,6 +378,7 @@ function chunkPieces(chunk, state) {
       if (!id) throw new Error("Comate patched a cumulative element without an id")
       const type = string(patch.type) || state.types.get(id) || ""
       if (!type) throw new Error("Comate patched an element before its type was known")
+      if (type === "TOOL") throw new Error("Comate emitted a native TOOL element the text adapter cannot translate")
       state.types.set(id, type)
       return typeof patch.content === "string" ? elementPieces(type, novel(state, id, patch.content)) : []
     }
