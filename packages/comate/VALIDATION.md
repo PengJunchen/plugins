@@ -1,117 +1,87 @@
 # Comate validation
 
-Current acceptance is recorded in [PR #77](https://github.com/magpie-community/plugins/pull/77).
-The candidate remains a draft, is not listed in the market, and is unpublished
-on npm. First publication requires a community npm owner.
+Real captures and sanitized evidence are recorded in [PR #77](https://github.com/magpie-community/plugins/pull/77).
+Diagnostic programs, raw client logs and desktop captures stay outside this repository.
 
 ## Tested revision and environment
 
-Recorded on 2026-10-11: runtime `63540ef594ab1fbbc4cefb034587bf867a6d60d0`,
-unmodified upstream Magpie `e2b3eb7406039a6e986a04e152737db4841670b4`
-(built with `-tags nogui`, version `dev`), macOS 26.6.2, Node.js 26.4.0,
-Bun 1.4.2, Comate app 1.108.2, extension 4.13.4 and local service 1.8.1.
-No forked gateway patch is used.
+Recorded on 2026-10-13 using `9bca3ae7f5b7d2ef34edb4a6cde3d81efc9ac1b2`
+and unmodified upstream Magpie `e2b3eb7406039a6e986a04e152737db4841670b4`
+(`-tags nogui`), macOS, Node.js 26.4.0 and Bun 1.4.2.
+Runtime source SHA-256 values matched both clients' captured setup records:
+
+| Source | SHA-256 |
+| --- | --- |
+| `index.mjs` | `d9a584d3c9135d2610aaca480ee3b2122ef7c67bdeebd18ab3c5708a47c1e688` |
+| `protocol.mjs` | `e4d80e8b98f7a5b9dadf129c2e51779c959100f1f7d9dfdd8d95cabf28fdc06c` |
+| `discovery.mjs` | `5e3542a00755ae3a3457d60a02d857fdb8d4137ec6975824f3fdfc6128d5a04d` |
 
 | Automated check | Result |
 | --- | --- |
-| Comate Node suite, explicit upstream production host | 57 passed, 0 failed, 0 skipped |
-| Community Bun suite, temporary HOME and explicit upstream host | 1095 passed, 0 failed across 108 files |
+| Node package suite, explicit upstream production host | 57 passed, 0 failed, 0 skipped |
+| Community Bun suite, fresh temporary HOME and explicit upstream host | 1095 passed, 0 failed, 0 skipped across 108 files |
 | Provider hook checker | All 16 providers passed |
-| npm dry-run payload | Six files; no host helper, tests, binaries or installers |
+| npm dry-run payload | LICENSE, README.md, discovery.mjs, index.mjs, package.json, protocol.mjs |
 
-The host integration uses a synthetic loopback service and checks initial
-function-call output; it does not execute a real client tool or establish
-continuation. Real-client evidence is recorded separately below.
-
-## Live account metadata
-
-The signed-in local service returned 15 model IDs. The inspected records had
-`modelId`, `displayName`, `modelType`, `thinking` and `supportImage` fields,
-with optional thinking/effort metadata, but no context, token-window or output
-limit fields. Context/input/output limits remain unknown (`0`); client
-fallback metadata is not an authoritative Comate limit.
+The host integration uses a synthetic loopback service. Real-client and
+desktop-tool observations below come from separate live runs.
 
 ## Real clients
 
-On the recorded runtime, both Codex CLI 0.152.0 and Claude Code 2.1.205
-completed a real client-tool/result/assistant-continuation cycle limited to
-each client's first user turn using
-`comate/glm-4.7-fc_0932b6afb498412fb4a02966066ab62c`; same-session follow-up
-prompts have not passed in the recorded attempts.
-Codex executed `exec_command`; Claude executed `Read`. Each tool result
-contained the complete independently generated challenge, used the same
-call ID in the next request, and was followed by a final answer containing
-that challenge. The initial prompts did not include challenge contents.
-Runtime source hashes matched the checkout; later commits change only tests
-and documentation.
+Both clients selected the live model
+`comate/glm-4.7-fc_0932b6afb498412fb4a02966066ab62c` through Magpie.
+Each completed a first user turn and a second user turn resumed in the same
+client session. Each turn used a distinct independently generated scratch file;
+its contents were absent from the initial request for that turn.
 
-Claude also requested a duplicate same-file Read; the client returned its
-"Wasted call" notice and the model used the first result to finish. Additional
-same-session CLI resume checks with new files remain unreliable: observed
-failures include old-result reuse and native Comate TOOL events after a real
-client result. These are separate from the completed fresh-turn cycles.
-Every attempt, retry, model ID and redacted wire excerpt is retained in the PR;
-HTTP 200 or a text answer alone does not pass.
+| Client / turn | Actual tool call ID | Result and final |
+| --- | --- | --- |
+| Codex CLI 0.152.0 / first | `call_797d059d36d94a568fa329d6` (`exec_command`) | Local exit 0; matching result POST seq 2; final equals fresh challenge |
+| Codex CLI 0.152.0 / resumed | `call_084ae40400aa479f9678e42a` (`exec_command`) | Local exit 0; matching result POST seq 4; final equals new challenge |
+| Claude Code 2.1.205 / first | `call_af2ff85e6f3642c5a7587381` (`Read`) | Non-error result POST seq 3; successful final contains fresh challenge |
+| Claude Code 2.1.205 / resumed | `call_87d59e57f5834a57a0b39707` (`Read`) | Non-error result POST seq 3 in the resumed recorder; successful final contains new challenge |
 
-Independent client and gateway homes keep live user configuration unchanged.
-A transparent loopback recorder forwards request bodies and response bytes
-unchanged. The only provider in each gateway is Comate. Challenge contents
-are generated independently and excluded from the initial user prompt;
-subsequent requests carry them in returned tool results and conversation history.
-Shared evidence contains no account names, licenses, authorization headers
-or private paths. Raw client logs stay local.
+All four CLI processes exited 0. Codex used the same thread in both turns;
+Claude used the same session in both turns. Gateway and desktop recorders
+forwarded original request bodies and response bytes unchanged. The gateway's
+only provider was Comate, with independent client/gateway configuration.
+No fixture or replay supplied a tool result. Detailed historical attempts
+and their observed failures are retained in the PR record.
 
-## Repeat a real-client check
+## Native desktop tools
 
-1. Run signed-in Comate and an unmodified upstream Magpie with this checkout
-   installed using `magpie plugin add /absolute/path/to/packages/comate` and
-   `magpie plugin login comate`. Wait for the live model catalog to load;
-   Magpie refreshes it asynchronously. Select `comate/<exact live model ID>`.
-2. Point each client's Responses or Anthropic endpoint at this isolated
-   Magpie instance. Record client versions and ensure there is no provider
-   fallback. Use independent client settings and a disposable scratch folder.
-3. Generate a fresh random challenge file without placing its contents in
-   the prompt. Ask Codex to read it with `exec_command`, and Claude Code with
-   `Read`, then return the contents after the tool result arrives. Check full
-   challenge containment; Read can include line numbers and finals can include prose.
-4. Verify the client event and call ID, local execution, matching result in
-   the next gateway request and final answer. Resume the same client session,
-   generate a new file and repeat. Preserve failures as well as successful runs.
+The retained historical provider SSE contains native `read_file` events
+(12 `executed`, one `failed`) and five `run_command` events with state
+`executing`. These names come from exact `TOOL` elements, including captured
+`response-error` bodies, rather than client declarations or marker text.
 
-Native Windows and Linux desktop acceptance have not been performed.
-Cross-platform discovery fixtures do not establish native desktop support.
-The adapter uses prompt-emulated function calls, so model compliance remains
-variable even when an individual client run passes.
+Direct requests to `/api/v1/conversations/init` used `mode: "Ask"` and
+`enableCodebaseSearch: false`, without client function tools or client results.
+GLM-4.7 and Kimi K3 each emitted a native `read_file` element with
+`state: "executed"`, `toolState: "executed"`, `detail.kind: "read"`, followed
+by `task_done`. Each returned the full fresh challenge absent from its query;
+the source file stayed unchanged. These were Comate reads independent of
+Codex and Claude tool approval.
 
-## Native boundary status (2026-10-13)
+A separate GLM-4.7 Ask request read another fresh scratch file and asked to
+copy it to a new scratch filename. It emitted `read_file` as executed,
+returned the challenge, answered that it could not create the destination
+in Ask mode, and finished with `task_done`. The source hash stayed unchanged
+and the destination did not appear. This records that trial's behavior.
 
-The official IDE description supports an intended read-only Ask mode with search
-tools enabled; enforcement for this local HTTP service remains unverified.
-Only `read_file` is explicitly named as native in the public historical record.
-Correlated Comate execution logs and file observations for those attempts are
-still unavailable here. No new live Comate/client boundary test was run in the
-cloud, which has no signed-in Comate service or authorized desktop access.
+## Reproduction
 
-The investigation notes, offline helper and six synthetic self-tests were removed
-from the current tree at the [reviewer's scope request](https://github.com/magpie-community/plugins/pull/77#issuecomment-6138738756).
-They remain available in immutable [commit 25f68ae](https://github.com/PengJunchen/plugins/tree/25f68ae085b2a2fb9df17deee154684cc64825a4/packages/comate)
-for later authorized local investigation. That commit's 62-pass/1-skip Node and
-1101-pass Bun results included those six self-tests; they are historical synthetic
-results, not evidence of real Comate execution or prevention and not current test
-totals.
+1. Use a signed-in Comate desktop and unmodified upstream Magpie. Install
+   this source package with `magpie plugin add /absolute/path/to/packages/comate`
+   and sign in with `magpie plugin login comate`. Select an exact ID from the
+   live `comate/` catalog.
+2. Point independent Codex Responses and Claude Messages configurations at
+   that isolated gateway, using only the Comate provider and a scratch folder.
+3. Generate a random file without putting its contents into the prompt. Ask
+   the client to read it, return the tool result, and answer with its contents.
+   Check the actual call, execution, matching result ID and full final content.
+4. Generate a different file and resume the same client session. Repeat the
+   call/result/final checks against the new contents.
 
-## Checks after scope cleanup (2026-10-13)
-
-Cloud checks used Node.js 24.19.0, Bun 1.4.3 and an
-unmodified upstream host checkout at
-`61c40b80bb17f8a451a25037b8561760715fb13d`. These checks use synthetic services;
-they do not run a real Comate desktop or establish a native-tool boundary.
-
-| Check | Result |
-| --- | --- |
-| `node --test` in `packages/comate`, host variables unset | 56 passed, 0 failed, 1 expected integration skip |
-| Full repository `bun test`, temporary home, explicit `MAGPIE_CHECKOUT` and `MAGPIE_BUN` | 1095 passed, 0 failed across 108 files, including the synthetic production-host integration |
-| `bun scripts/check.mjs` | All 16 providers passed |
-| npm pack dry run with a writable temporary cache | Six files: LICENSE, README.md, discovery.mjs, index.mjs, package.json, protocol.mjs |
-| `scripts/new-to-npm.sh` | Failed only for the unpublished Comate package; a separate npm registry query returned E404. This existing first-publication prerequisite remains unresolved; no publication was performed. |
-| Real Comate native-tool execution/denial, Codex/Claude boundary tests, native Windows/Linux desktop | Not run; missing authorized signed-in desktop/service and correlated execution evidence |
+Published excerpts omit account names, licenses, headers, private paths and
+challenge values. Copied credentials and test processes were cleaned up.

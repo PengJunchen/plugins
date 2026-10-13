@@ -1,12 +1,10 @@
 # Comate provider plugin for Magpie
 
-Comate's local service may execute its own tools outside the calling client's
-tool-approval and sandbox controls. `Ask` mode is not a verified tools-off or
-read-only boundary. The adapter can reject a native `TOOL` event and request
-cancellation only after receiving the event; this cannot guarantee prevention
-of an action or its side effects. Captured native-tool events still need to
-be checked against Comate's own logs and file state to establish what actually
-ran.
+Comate's local service executes its own tools outside the calling client's
+tool-approval and sandbox controls. Real `Ask` requests executed `read_file`
+and returned fresh scratch-file contents without a client tool call.
+The adapter rejects native `TOOL` events and requests cancellation after
+receiving them; cancellation cannot undo an action already executed.
 
 This experimental plugin sends text conversations to Comate's local service
 and exposes OpenAI-compatible Chat Completions through Magpie's provider
@@ -16,8 +14,8 @@ model compliance varies. See the source validation record for the tested
 clients, exact live model IDs and failed attempts.
 
 The candidate is not yet listed in the market or published on npm. See
-[VALIDATION.md](./VALIDATION.md) in the source checkout for evidence, remaining
-requirements and the real-client acceptance procedure.
+[VALIDATION.md](./VALIDATION.md) in the source checkout for test results and
+the real-client reproduction procedure.
 
 ## Install and sign in
 
@@ -44,8 +42,7 @@ the local service port. The plugin reads but does not modify Comate's settings
 or service-discovery files. Magpie stores a pasted license with its plugin
 sign-in.
 
-The discovery code uses these platform paths (path fixtures do not prove
-that the app or service works on those platforms):
+The discovery implementation reads these settings paths:
 
 - Windows: `%APPDATA%\Comate\User\settings.json`
 - macOS: `~/Library/Application Support/Comate/User/settings.json`
@@ -59,9 +56,6 @@ and `COMATE_PID_PATH` values and a numeric `COMATE_PORT`. Requests are sent to
 IPv4 loopback only, and redirects are rejected. The plugin does not contact a
 remote Comate API itself; Comate's local service owns any connection it makes
 to its own backend.
-
-Native Windows discovery and tool turns have not been tested. Linux also
-has no real desktop acceptance evidence. Neither is advertised as verified.
 
 After sign-in, select the exact model ID returned by the current account's
 local `/list-model` endpoint under `comate/<model ID>`. There is no built-in
@@ -101,7 +95,7 @@ marker produces an API error. The adapter does not guess or repair calls.
 The emitted function calls are emulated client calls. Comate's local service
 can also use its own tools while interpreting a prompt; those actions do not
 count as client function execution, and the adapter cannot apply a client's
-sandbox to that service. Its `Ask` mode is not a verified tools-off boundary.
+sandbox to that service. The captured Ask requests executed native file reads.
 The adapter accepts standard function tools, supports `auto`, `none`, `required`, and named function choices,
 and rejects `strict: true`. It checks that names were offered and arguments
 are JSON objects, but does not validate arguments against the full JSON
@@ -154,7 +148,7 @@ source checkout or `MAGPIE_HOST` to its `internal/plugin/host.js` file. The
 test runs only with an explicitly specified host/checkout and available Bun.
 It never searches neighbouring directories. With no explicit path, or with
 missing prerequisites, it reports a skip. This fixture-backed host test does
-not count as real Comate, Codex, Claude Code or native Windows validation.
+not count as real Comate, Codex or Claude Code execution.
 Use an unmodified upstream Magpie checkout; no gateway patch is needed.
 
 From the community repository root, the package hook check is:
