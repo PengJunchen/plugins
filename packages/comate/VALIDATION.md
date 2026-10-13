@@ -83,39 +83,35 @@ Cross-platform discovery fixtures do not establish native desktop support.
 The adapter uses prompt-emulated function calls, so model compliance remains
 variable even when an individual client run passes.
 
-## Native boundary investigation (2026-10-13)
+## Native boundary status (2026-10-13)
 
-[NATIVE-TOOLS.md](./NATIVE-TOOLS.md) inventories the evidence currently available,
-compares the adapter request with official IDE/CLI documentation, and gives an
-isolated local procedure. The official IDE description supports an intended
-read-only Ask mode; enforcement for this local HTTP service remains unverified.
+The official IDE description supports an intended read-only Ask mode with search
+tools enabled; enforcement for this local HTTP service remains unverified.
 Only `read_file` is explicitly named as native in the public historical record.
 Correlated Comate execution logs and file observations for those attempts are
 still unavailable here. No new live Comate/client boundary test was run in the
 cloud, which has no signed-in Comate service or authorized desktop access.
 
-The offline helper and its synthetic tests cannot establish native execution or
-prevention. Its cancellation counterexample intentionally writes a fixture file
-before emitting TOOL: the adapter returns 502 and requests cancellation, while
-the file remains. Immediate and settled snapshots also detect a later synthetic
-effect. This validates the measurement procedure, not real Comate behavior.
+The investigation notes, offline helper and six synthetic self-tests were removed
+from the current tree at the [reviewer's scope request](https://github.com/magpie-community/plugins/pull/77#issuecomment-6138738756).
+They remain available in immutable [commit 25f68ae](https://github.com/PengJunchen/plugins/tree/25f68ae085b2a2fb9df17deee154684cc64825a4/packages/comate)
+for later authorized local investigation. That commit's 62-pass/1-skip Node and
+1101-pass Bun results included those six self-tests; they are historical synthetic
+results, not evidence of real Comate execution or prevention and not current test
+totals.
 
-Cloud checks for this investigation used Node.js 24.19.0, Bun 1.4.3 and an
+## Checks after scope cleanup (2026-10-13)
+
+Cloud checks used Node.js 24.19.0, Bun 1.4.3 and an
 unmodified upstream host checkout at
-`61c40b80bb17f8a451a25037b8561760715fb13d`. Codex CLI 0.159.0-alpha.3 and
-Claude Code 2.1.296 were present; checking their versions is not a client-tool
-acceptance test. There was no live model ID for this unrun boundary check.
+`61c40b80bb17f8a451a25037b8561760715fb13d`. These checks use synthetic services;
+they do not run a real Comate desktop or establish a native-tool boundary.
 
 | Check | Result |
 | --- | --- |
-| `node --test` in `packages/comate`, host variables unset | 62 passed, 0 failed, 1 expected integration skip |
-| Full repository `bun test`, temporary home, explicit `MAGPIE_CHECKOUT` and `MAGPIE_BUN` | 1101 passed, 0 failed across 109 files, including the synthetic production-host integration |
+| `node --test` in `packages/comate`, host variables unset | 56 passed, 0 failed, 1 expected integration skip |
+| Full repository `bun test`, temporary home, explicit `MAGPIE_CHECKOUT` and `MAGPIE_BUN` | 1095 passed, 0 failed across 108 files, including the synthetic production-host integration |
 | `bun scripts/check.mjs` | All 16 providers passed |
-| Offline helper CLI prepare/stage/observe/report smoke | Passed; correctly reports the trial as not run |
-| npm pack dry run with a writable temporary cache | Six files; diagnostic helper, tests and investigation notes excluded |
+| npm pack dry run with a writable temporary cache | Six files: LICENSE, README.md, discovery.mjs, index.mjs, package.json, protocol.mjs |
+| `scripts/new-to-npm.sh` | Failed only for the unpublished Comate package; a separate npm registry query returned E404. This existing first-publication prerequisite remains unresolved; no publication was performed. |
 | Real Comate native-tool execution/denial, Codex/Claude boundary tests, native Windows/Linux desktop | Not run; missing authorized signed-in desktop/service and correlated execution evidence |
-
-The six new diagnostic tests are included in the totals above. They cover fresh
-canaries, raw event inventory, missing/malformed evidence, the synthetic
-cancellation counterexample, conservative reporting, and filesystem path/link
-guards. No service credentials are needed for these checks.
