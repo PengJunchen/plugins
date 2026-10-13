@@ -6,7 +6,8 @@ read-only boundary. The adapter can reject a native `TOOL` event and request
 cancellation only after receiving the event; this cannot guarantee prevention
 of an action or its side effects. Captured native-tool events still need to
 be checked against Comate's own logs and file state to establish what actually
-ran.
+ran. The source checkout's [native-tool investigation](./NATIVE-TOOLS.md) separates
+the available evidence from the isolated tests still needed.
 
 This experimental plugin sends text conversations to Comate's local service
 and exposes OpenAI-compatible Chat Completions through Magpie's provider
