@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { _internal } from "./index.mjs"
+import { _internal } from "./local-transport.fixture.mjs"
 
 const fixtureLicense = "synthetic-test-credential"
 const endpoint = "http://127.0.0.1:8627/v1/chat/completions"

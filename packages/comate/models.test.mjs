@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { _internal } from "./index.mjs"
+import { _internal } from "./local-transport.fixture.mjs"
 
 // Synthetic accounts only. These test routing and metadata, not real Comate
 // model availability, context windows or client tool-call compliance.

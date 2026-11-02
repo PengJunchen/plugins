@@ -48,7 +48,7 @@ function toolCallFromQuery(query) {
   return `${start[0]}${JSON.stringify([{ name: alias, arguments: { text: "from Comate" } }])}${end}`
 }
 
-test("Comate runs through Magpie's production Bun host with standard tool calls", {
+test("Historical local fixture runs through Magpie's production Bun host with standard tool calls", {
   skip: skipReason,
   timeout: 60_000,
 }, async (t) => {
@@ -119,7 +119,8 @@ test("Comate runs through Magpie's production Bun host with standard tool calls"
   const host = new MagpieHost({ bun, host: magpieHost, cwd: temp, env })
   t.after(() => host.close())
 
-  const pluginDir = fileURLToPath(new URL(".", import.meta.url))
+  const pluginDir = join(temp, "legacy-fixture.mjs")
+  writeFileSync(pluginDir, `export { ComateAuthPlugin } from ${JSON.stringify(new URL("./local-transport.fixture.mjs", import.meta.url).href)}`)
   const initialized = await host.call("init", {
     authPath: join(temp, "plugin-auth.json"),
     directory: temp,

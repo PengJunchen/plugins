@@ -1,162 +1,56 @@
-# Comate provider plugin for Magpie
+# Comate cloud provider for Magpie
 
-Comate's local service executes its own tools outside the calling client's
-tool-approval and sandbox controls. Real `Ask` requests executed `read_file`
-and returned fresh scratch-file contents without a client tool call.
-The adapter rejects native `TOOL` events and requests cancellation after
-receiving them; cancellation cannot undo an action already executed.
+本地主线开发版本 `0.3.0`。通过 HTTPS 直接请求 Comate 云端，复用这台电脑的 Comate 登录态。
+不调用 Comate 本地服务的会话、工具执行或取消接口；云端不可用时直接报错。
+本版本尚未发布 npm，也未获社区审核批准。
 
-This experimental plugin sends text conversations to Comate's local service
-and exposes OpenAI-compatible Chat Completions through Magpie's provider
-gateway. Magpie can translate Responses, Anthropic Messages and Gemini
-requests into that format. Function calls use prompt-based emulation;
-model compliance varies. See the source validation record for the tested
-clients, exact live model IDs and failed attempts.
-
-The candidate is not yet listed in the market or published on npm. See
-[VALIDATION.md](./VALIDATION.md) in the source checkout for test results and
-the real-client reproduction procedure.
-
-## Install and sign in
-
-The distribution channel is the normal npm package. After a community npm
-owner publishes the first version and the review prerequisites are met:
+## 本机使用
 
 ```sh
-magpie plugin add @magpie-community/opencode-comate-auth
-magpie plugin login comate
+magpie plugin add /absolute/path/to/magpie-community-plugins/packages/comate
+magpie plugin login comate 1
 ```
 
-For development before publication, use an absolute source-checkout path:
+选择 `Comate account (this computer)`，然后在 Magpie 中选择实时目录中的 `comate/<model ID>`。
+源码目录必须保留。插件升级后使用新会话测试，必要时重启 Magpie。
+不需要 Comate 本地服务运行，但需可读的有效登录凭据和到 `https://comate.baidu.com` 的网络。
+也支持手工输入 license。宿主会保存凭据；对话、系统提示、工具定义、客户端返回的工具结果会发往 Comate 云端。
+插件只读 Comate 设置，不修改该文件。macOS 默认位置为
+`~/Library/Application Support/Comate/User/settings.json`；可用绝对路径 `COMATE_SETTINGS_PATH` 覆盖，支持 JSONC。
+Windows/Linux 路径仍有单元测试，未做本版本原机验收。
 
-```sh
-magpie plugin add "$(pwd -P)/packages/comate"
-magpie plugin login comate
-```
+## 工具和续聊
 
-After publication and listing, the plugin can also be added from Settings →
-Plugins. Choose **Comate account (this computer)** to read the license from
-the Comate app already signed in on
-this computer, or **Comate license (paste)** to enter a license and, if needed,
-the local service port. The plugin reads but does not modify Comate's settings
-or service-discovery files. Magpie stores a pasted license with its plugin
-sign-in.
+沿用我们的完整 JSON-lines 会话回放、请求级函数别名和工具块校验。
+吸收 0.2.13 的云端协议及原生函数事件解析，将已声明的函数事件转为客户端 `tool_calls`。
+客户端负责执行工具并返回同一个 call ID 的结果。未声明的云端工具、原生 `TOOL` 执行事件、
+不完整函数参数、失败或缺失结束事件都会报错；不会伪造成功结果或发出未知工具供客户端猜测。
+每次请求新建独立云端会话并发送完整历史，因此重启宿主、切换账号/模型和并发请求无需依赖共享续聊缓存。
+这种策略会增加长会话的提示长度和云端开销，尚未验证长会话性能。
 
-The discovery implementation reads these settings paths:
+支持文本、流式和非流式、`auto` / `none` / `required` / 指定函数。
+工具参数需是 JSON 对象；不保证完整 JSON Schema 验证，拒绝 `strict: true`。
+图片和文件暂不支持。推理可返回，但不转发推理档位、temperature、max_tokens 等生成控制。
+目录仅来自当前账号的云端实时列表；没有固定模型种子，未知上下文窗口保持 0。
+云端请求拒绝重定向，有总时限及取消信号；创建会话/任务和执行 POST 不自动重试。
 
-- Windows: `%APPDATA%\Comate\User\settings.json`
-- macOS: `~/Library/Application Support/Comate/User/settings.json`
-- Linux: `$XDG_CONFIG_HOME/Comate/User/settings.json`, defaulting to
-  `~/.config/Comate/User/settings.json`
+云端路径避免了旧桌面执行端点，但这不等同于服务端所有工具均关闭或社区已接受新方案。
+真实 Codex/Claude Code 完整网关验收、无客户端工具的随机文件反证及维护者重新审核仍需分别记录。
 
-The local `zulu serve` port is read from `~/.comate/zulu-serve.pid`; when that
-file is absent, the plugin uses a pasted port or the documented fallback
-port `8741`. Portable or test setups may set absolute `COMATE_SETTINGS_PATH`
-and `COMATE_PID_PATH` values and a numeric `COMATE_PORT`. Requests are sent to
-IPv4 loopback only, and redirects are rejected. The plugin does not contact a
-remote Comate API itself; Comate's local service owns any connection it makes
-to its own backend.
-
-After sign-in, select the exact model ID returned by the current account's
-local `/list-model` endpoint under `comate/<model ID>`. There is no built-in
-fallback catalog. The old hex-suffixed seed IDs had no established
-account-independent provenance, so they have been removed. If discovery is
-unavailable, only explicitly configured models remain; no account's IDs are
-invented for another account. Display-name and model-type aliases are scoped
-to each plugin instance and current credential/local endpoint, and replaced
-on refresh. A failed refresh discards that credential's aliases.
-
-Only positive integer `limit.context`, `limit.input` and `limit.output` values
-in a live model record are carried into model metadata. Missing context or
-output limits remain `0` (the host's unknown sentinel). The inspected real `/list-model`
-response supplied no context or output limit fields. Numeric field mappings
-are covered by synthetic tests; no usable account window is claimed from
-those fixtures or a client's fallback metadata. A name such as "128k" is not
-evidence of the account's window.
-
-## Function tools
-
-Function tools use prompt-based emulation over Comate's text interface.
-Magpie passes the conversation, descriptions, and schemas to Comate as text.
-The adapter gives each offered function a request-specific alias to reduce
-collisions with Comate's built-in tool names, then maps accepted calls back
-to the client's original names. Conversation history keeps the original
-names and correlation IDs. When Comate returns the complete tool marker
-block with valid JSON arguments and offered function names, the plugin emits
-standard OpenAI `tool_calls`; Magpie translates them to the calling API's
-format. The calling client executes the function and returns its result in the
-next request.
-
-In `auto` mode, ordinary assistant prose may precede a complete function block;
-the prose is preserved and the block becomes a client call. A matching block
-with malformed JSON, an unoffered function, trailing prose or a missing end
-marker produces an API error. The adapter does not guess or repair calls.
-
-The emitted function calls are emulated client calls. Comate's local service
-can also use its own tools while interpreting a prompt; those actions do not
-count as client function execution, and the adapter cannot apply a client's
-sandbox to that service. The captured Ask requests executed native file reads.
-The adapter accepts standard function tools, supports `auto`, `none`, `required`, and named function choices,
-and rejects `strict: true`. It checks that names were offered and arguments
-are JSON objects, but does not validate arguments against the full JSON
-Schema. Model compliance with the prompt protocol is not guaranteed, and the
-adapter does not repair malformed tool blocks or silently convert them into a
-successful required call. For `required` and named choices, streamed ordinary
-text is held until tool-call validation, and Comate reasoning text is discarded
-instead of returned. If the required block is missing or malformed, the stream
-ends with an API error and no successful completion. A Comate-native `TOOL`
-stream element causes an error and a best-effort cancellation request, including when its
-content is structured or absent. This detection does not prevent the local
-service from starting a native action before the event arrives.
-
-No forked gateway change is required. The plugin's non-stream path collects
-the entire Comate SSE response and returns 502 if the task fails, even after
-partial text. A streamed response can already have emitted text before an
-upstream failure; Magpie retains its normal partial-text behavior. A reply
-with only reasoning before failure is already a 502 under the upstream rule.
-Required/named tool validation holds text until completion as described above.
-
-The current adapter accepts text inputs only: `text`, `input_text`, and
-`output_text` parts, plus the legacy untagged `{ "text": "…" }` shape. It
-rejects image, audio, video, file, function, tool-result, and unknown content
-parts, and returns a 400 for an empty text request. Reasoning text is returned
-when the local service emits it, but `reasoning_effort` is not forwarded and
-cannot be selected through this adapter. Generation controls such as
-`temperature`, `top_p`, penalties, stop sequences, and `max_tokens` or
-`max_completion_tokens` are also not forwarded; they do not affect Comate
-generation here.
-
-## Development checks
-
-The package uses Node's built-in test runner and no npm dependencies:
+## 验证
 
 ```sh
 cd packages/comate
 npm test
-MAGPIE_CHECKOUT=/absolute/path/to/magpie npm run test:integration
+MAGPIE_HOST=/absolute/path/to/host.js MAGPIE_BUN=/absolute/path/to/bun npm test
 ```
 
-These commands require the package source checkout; tests and the host helper
-are not included in the npm package. The `npm` commands run local Node scripts
-and do not download or publish the package.
+`cloud.test.mjs` 验证新云端传输，`cloud-host.test.mjs` 使用显式指定的生产 Magpie 宿主和假云端服务。
+测试不会自行寻找邻近仓库。没有显式宿主/Bun 时宿主测试跳过。
+`local-transport.fixture.mjs` 仅保留旧本地传输回归，未由生产入口导入，也不进入 npm 包。
+旧 `models.test.mjs`、`protocol-transport.test.mjs` 和 `integration.test.mjs` 对它的测试不能作为新云端传输验收。
+协议及发现测试继续覆盖两代实现的共有行为。
 
-The integration test starts Magpie's production Bun plugin host and points it
-at synthetic services bound to loopback with temporary settings and service
-files. It does not use a real Comate license or modify real Comate files. Set
-`MAGPIE_BUN` to the Bun executable and either `MAGPIE_CHECKOUT` to a Magpie
-source checkout or `MAGPIE_HOST` to its `internal/plugin/host.js` file. The
-test runs only with an explicitly specified host/checkout and available Bun.
-It never searches neighbouring directories. With no explicit path, or with
-missing prerequisites, it reports a skip. This fixture-backed host test does
-not count as real Comate, Codex or Claude Code execution.
-Use an unmodified upstream Magpie checkout; no gateway patch is needed.
-
-From the community repository root, the package hook check is:
-
-```sh
-bun scripts/check.mjs comate
-```
-
-The adapter implementation is in [`index.mjs`](./index.mjs), Comate request
-and stream contracts in [`protocol.mjs`](./protocol.mjs), and cross-platform
-local discovery in [`discovery.mjs`](./discovery.mjs).
+npm 载荷只有 LICENSE、README.md、index.mjs、cloud.mjs、protocol.mjs、discovery.mjs、package.json。
+没有安装器、二进制或生命周期脚本。首次社区发布仍由 npm owner 操作。
+详见源码中的 [VALIDATION.md](./VALIDATION.md)。

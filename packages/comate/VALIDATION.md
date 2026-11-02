@@ -1,3 +1,69 @@
+# Cloud revision validation — 2026-11-02
+
+Branch: `codex/comate-cloud-local-20261102`, based on our `85e021a`.
+Local development version: `0.3.0`; no npm/GitHub release and no new review approval.
+The desktop report below is historical, not the behavior of this revision.
+
+## Scope and design
+
+Only our community-plugin branch changes; no Magpie gateway patch or change to the supplied
+`magpie-comate-auth-0.2.13` directory. Runtime `index.mjs` no longer contains the desktop
+conversation/cancel/model-list transport. Cloud transport is in `cloud.mjs`; shared protocol
+and discovery sources are unchanged. Historical local transport lives in a fixture excluded
+from npm. New entry point never imports it.
+
+Each request creates a new cloud conversation/task and replays the complete client transcript.
+We deliberately do not adopt 0.2.13's module-wide continuation cache, local fallback,
+static model seeds, guessed tool aliases, fabricated bookkeeping success or unknown-tool output.
+Cloud function fragments are translated only for declared names and pass through our existing
+nonce parser, choice/parallel checks and client-call generation. Tools execute in the client.
+Long transcript cost/performance remains unmeasured.
+
+## Current verification
+
+- Node 26.4.0, cached Bun 1.4.4 and explicit unmodified production host
+  `~/.cache/magpie/plugin-host/host-a436cfb4eefb.js`.
+- Full package suite: **78 pass, 0 fail, 0 skip** with explicit host and Bun.
+  New cloud unit/host tests: **21 pass**. Remaining tests include the unchanged shared
+  protocol/discovery checks and historical local fixtures; they are not all cloud proofs.
+- All **16** repository provider-hook checks passed. `git diff --check` passed.
+- npm dry-run: exactly **7** payload files (LICENSE, README.md, index.mjs, cloud.mjs,
+  protocol.mjs, discovery.mjs, package.json); no fixture, tests, installers or binaries.
+- Real cloud catalog: **15** current-account models; exact live test model
+  `glm-4.7-fc_0932b6afb498412fb4a02966066ab62c`.
+- Real direct-cloud text request returned `COMATE_CLOUD_OK` with HTTP 200.
+- Real installed Magpie production host, isolated auth store: two consecutive user turns,
+  each using a different random scratch file. Initial request did not contain its challenge;
+  a real client `read_file` call read it, matching call ID returned the contents, and the
+  final answer exactly matched each challenge. Temporary files/auth store were removed.
+  This was our bounded Node test client through the real Magpie plugin host, **not Codex
+  or Claude Code and not a four-protocol gateway acceptance run**.
+- No-client-tools scratch trial: cloud returned HTTP 502 for an unoffered tool;
+  0 client executions, 0 desktop network requests, no challenge in reply, source unchanged,
+  destination absent. Three cloud POSTs. This proves that trial's local execution boundary;
+  it does not prove all backend tools disabled for every model or endpoint.
+- Installed the source path into the user's existing Magpie and completed desktop-account
+  login. Independent CLI readback: installed=true, signedIn=true, models=15.
+
+Failed attempts retained: first host test used plain JSON where the host protocol expects
+base64 and failed before generation; corrected the test client. Two subsequent first-turn
+trials performed the client tool successfully but added prose/code fences around the complete
+challenge, failing the exact-output assertion. The final two-turn run matched both challenges
+exactly. No model/provider fallback was used. One accidental root-level Node test discovery
+also ran unrelated Bun suites and failed on `bun:` imports; this is not a valid package gate.
+The scoped Node package suite and Bun provider checks above are the applicable checks.
+
+## Review boundary
+
+[PR #77 final review](https://github.com/magpie-community/plugins/pull/77#issuecomment-6166443172)
+closed the desktop design because native tools bypassed client permissions. Removing its
+execution endpoint addresses that transport path; the current cloud design is a new proposal,
+not an approval of the old PR. A fresh Codex/Claude Code gateway run and maintainer review
+are still required before claiming community acceptance. Windows/Linux native runs remain
+unverified. No market entry has been restored, no package has been published, and no PR changed.
+
+---
+
 # Comate validation
 
 Real captures and sanitized evidence are recorded in [PR #77](https://github.com/magpie-community/plugins/pull/77).
