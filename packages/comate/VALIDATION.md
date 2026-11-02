@@ -1,3 +1,89 @@
+# 0.4.0 images, native continuation and long tasks — 2026-11-02
+
+This section supersedes the 0.3.0 candidate below. Same local branch:
+`codex/comate-cloud-local-20261102`, based on `b04626a`. No remote push,
+market listing, npm publication or maintainer approval.
+
+## Requested behavior restored
+
+- No total generation timer. Metadata, uploads, response headers, first byte and
+  inter-byte silence retain separate deadlines. Continuous activity can run indefinitely;
+  client cancellation still aborts the request. Host/client timeouts are independent.
+- Inline PNG/JPEG/WebP/GIF in OpenAI data-URL and Anthropic base64 forms, including
+  image-only user messages and native tool image results. Upload limit: 5 per request,
+  each <=10 MiB decoded. Remote URLs and documents are explicit errors.
+- Native cloud conversation/task reuse, incremental user queries and `toolUseResults`.
+  Returned client call IDs are correlated with original cloud IDs/names/parameters;
+  errors remain errors, image results remain images. Native cloud function events are
+  preferred over asking the model to emulate text markers. Existing parser/choice
+  validation is still applied to the resulting client calls.
+- Per-instance, credential/model/session isolation. Same-session concurrent generation
+  returns 409. Missing session IDs, cache loss, branch/tool-catalog changes and missed
+  intermediate turns fall back to full transcript replay. Failed/cancelled state is dropped.
+  No fallback to Comate's desktop execution service was introduced.
+
+## Verification
+
+**100 package tests passed, 0 failed, 0 skipped**, with explicitly selected cached
+production Magpie host `host-a436cfb4eefb.js`, Bun 1.4.4 and Node 26.4.0.
+43 cover the cloud transport/host/features; remaining tests cover shared components and
+historical local fixtures, not all new cloud behavior. New cases include original-ID native
+result correlation, streamed calls, account/model/session isolation, history/tool changes,
+cache loss, inline image forms, image-only requests, tool images, no duplicate image upload,
+upload failure, cancellation, invalid native results, failure eviction and concurrent calls.
+A fake-clock test drives **10 minutes of continuous output** and sees successful completion;
+a separate real short-idle fixture verifies a stalled stream fails and releases its session.
+This is virtual-time long-task evidence, not a ten-minute live model run.
+All 16 repository provider-hook checks and `git diff --check` passed.
+npm dry-run includes exactly 9 runtime/docs/license files, excluding tests and historical fixtures.
+
+### Real native cloud continuation through installed Magpie production host
+
+Model: `glm-4.7-fc_0932b6afb498412fb4a02966066ab62c`.
+Two consecutive user turns each requested a different fresh random scratch file.
+Both initial requests omitted that file's challenge; the actual client executed `read_file`,
+returned its result and received a final answer containing the complete challenge.
+Both answers used prose/code fences, so **exact-output match was false**; content checks passed.
+All four execute POSTs used conversation `21518889`, task `4063854`. Only the first was
+`isFirstQuery:true`. The two result-only POSTs had `isUserQuery:false` and native result IDs
+`call_0713f30dae2d4092bcb740f9` and `call_8c86d5e0c304448b9a84f244`, both `success:true`.
+These observations distinguish native continuation from our former full-history replay.
+The test client's auth store/scratch files were isolated and removed afterwards.
+
+### Real images and image-context continuation
+
+A generated 64x64 solid red PNG was sent through the real host, not supplied as text.
+
+| Model | First answer | Second turn without another upload | Cloud task |
+| --- | --- | --- | --- |
+| Kimi K3.1 Pro `kimi-k3.1-pro_5c3deb5655824ba8a8c75b32a3b1b809` | Red | Red | 4063867 |
+| GLM-5v Turbo `glm-5v-turbo_53f84ce17fec43dbbe1f3d9b574f0a85` | **Red** | **Red** | 4063873 |
+
+Each run created one conversation/task, uploaded exactly one PNG, sent one IMAGE context
+on the first execute, and used the same task with zero new image contexts on the second.
+The question asked for the image's dominant color; it did not name the expected color.
+These trials cover PNG with two models, not every accepted media type or model.
+
+Failures retained: the first native trial still requested emulated marker output and GLM
+returned malformed marker text rather than a client call. Switching the cloud prompt to
+native function calls passed the two-turn test above. An early GLM image trial also requested
+an unoffered tool and failed closed. After replacing filename-shaped prompt placeholders
+with an attached-image marker, the GLM and Kimi image trials passed; this is an observed
+before/after, not proof of every backend cause. Packaging dry-run was run from the package directory.
+
+The latest no-client-tools scratch trial again returned 502 for unoffered read_file,
+with zero client executions/desktop requests, no challenge disclosure, unchanged source and no copy.
+
+Installed-source readback remains signed in with 15 models; seven currently advertise image
+input from their live `supportImage` fields. Source path remains registered in the user's
+existing Magpie. No other agent's model selection was changed.
+
+Real Codex/Claude Code complete gateway acceptance, Windows/Linux native execution and a
+maintenance review remain separate pending evidence. Sanitized native/image wire summaries
+are retained locally; original licenses, image base64 and scratch contents are omitted.
+
+---
+
 # Cloud revision validation — 2026-11-02
 
 Branch: `codex/comate-cloud-local-20261102`, based on our `85e021a`.

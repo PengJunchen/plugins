@@ -125,6 +125,7 @@ function credentialKey(credential, base) {
 
 function modelOf(provider, model, base) {
   const thinking = model?.thinking === true
+  const image = model?.supportImage === true
   return {
     id: model.modelId,
     providerID: provider?.id ?? SITE.id,
@@ -138,9 +139,9 @@ function modelOf(provider, model, base) {
     capabilities: {
       temperature: false,
       reasoning: thinking,
-      attachment: false,
+      attachment: image,
       toolcall: true,
-      input: { text: true, image: false, audio: false, video: false, pdf: false },
+      input: { text: true, image, audio: false, video: false, pdf: false },
       output: { text: true, image: false, audio: false, video: false, pdf: false },
       interleaved: false,
     },
@@ -238,10 +239,12 @@ async function finished(chat, response, task, toolSpec, uuid, license) {
 
   if (result.terminal) task.finish()
   else await task.cancel()
-  if (!result.ok) return errorResponse(502, result.error, "kept", license)
+  if (!result.ok) { task.cleanup(); return errorResponse(502, result.error, "kept", license) }
 
   const completion = completionResult(chat, result, toolSpec, uuid)
-  if (completion.error) return errorResponse(502, completion.error, "kept", license)
+  if (completion.error) { task.cleanup(); return errorResponse(502, completion.error, "kept", license) }
+  task.succeed?.(completion.toolCalls)
+  task.cleanup()
   return new Response(JSON.stringify(completion.body), {
     status: 200,
     headers: { "content-type": "application/json" },
@@ -292,8 +295,9 @@ function streamed(chat, response, task, toolSpec, uuid, license) {
         return
       }
       if (final.text) yield chunks.encode({ content: final.text })
+      const calls = toolCallIds(final.calls, uuid)
+      task.succeed?.(calls)
       if (final.calls.length) {
-        const calls = toolCallIds(final.calls, uuid)
         for (const [index, item] of calls.entries()) {
           yield chunks.encode({ tool_calls: [{ index, id: item.id, type: item.type, function: { name: item.function.name, arguments: "" } }] })
         }
