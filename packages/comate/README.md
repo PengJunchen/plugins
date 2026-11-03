@@ -1,6 +1,6 @@
 # Comate cloud provider for Magpie
 
-本地主线开发版本 `0.4.0`。通过 HTTPS 直接请求 Comate 云端，复用这台电脑的 Comate 登录态。
+本地主线开发版本 `0.4.1`。通过 HTTPS 直接请求 Comate 云端，复用这台电脑的 Comate 登录态。
 不调用 Comate 本地服务的会话、工具执行或取消接口；云端不可用时直接报错。
 本版本尚未发布 npm，也未获社区审核批准。
 
@@ -27,6 +27,12 @@ Windows/Linux 路径仍有单元测试，未做本版本原机验收。
 客户端执行后，插件把返回的 call ID 映射到云端原始 ID，以 `toolUseResults` 原生回传。
 原生工具结果可携带一张内联图片，客户端报告的执行失败会原样标为失败。
 不会伪造执行成功，也不会把未声明工具交给客户端猜测。原生 `TOOL` 执行事件仍报错。
+Comate 的 `list_dir` 若不在客户端目录内，但客户端提供参数兼容的 `bash`/`Bash`，
+插件会将其转换为该客户端工具的 `ls -la -- '<目录>'` 调用，并补齐声明的 description。
+目录作为完整 shell 字符串转义；原生 `depth` 支持 1–64 的整数或整数字符串，深度大于 1 时转换成有深度边界的 `find`。
+不附加提权/审批绕过参数；仍由客户端的审批和沙箱控制执行。
+工具结果回传时保留云端原始 `list_dir` 名称、ID 和参数。
+无兼容工具、`tool_choice:none`、歧义目录或不支持的选项明确报错。
 
 会话状态位于每个插件实例内，按账号、模型、session ID 隔离，最多保留 64 个会话。
 同一会话正在生成时，再次提交返回 409，避免并发写坏云端任务。
@@ -72,6 +78,6 @@ MAGPIE_HOST=/absolute/path/to/host.js MAGPIE_BUN=/absolute/path/to/bun npm test
 旧 `models.test.mjs`、`protocol-transport.test.mjs` 和 `integration.test.mjs` 对它的测试不能作为新云端传输验收。
 协议及发现测试继续覆盖两代实现的共有行为。
 
-npm 载荷只有 LICENSE、README.md、index.mjs、cloud.mjs、cloud-session.mjs、images.mjs、protocol.mjs、discovery.mjs、package.json。
+npm 载荷只有 LICENSE、README.md、index.mjs、cloud.mjs、cloud-session.mjs、tool-adapter.mjs、images.mjs、protocol.mjs、discovery.mjs、package.json。
 没有安装器、二进制或生命周期脚本。首次社区发布仍由 npm owner 操作。
 详见源码中的 [VALIDATION.md](./VALIDATION.md)。

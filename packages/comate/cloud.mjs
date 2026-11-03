@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 import * as discovery from "./discovery.mjs"
 import { buildQuery, events } from "./protocol.mjs"
 import { normalizeMessages, imagesFrom } from "./images.mjs"
+import { clientToolCall } from "./tool-adapter.mjs"
 import { SESSION_HEADER, sessionKey, historyHash, catalogHash, continuation, nativeResults } from "./cloud-session.mjs"
 
 const ORIGIN = "https://comate.baidu.com"
@@ -172,7 +173,7 @@ export function cloudHooks(hooks, options = {}, shared) {
             const remaining = [...nativeCalls]
             const pending = []
             for (const call of calls) {
-              const index = remaining.findIndex(native => request.toolSpec.byName.get(native.name) === call.function.name && JSON.stringify(native.input) === call.function.arguments)
+              const index = remaining.findIndex(native => (native.clientName ?? request.toolSpec.byName.get(native.name)) === call.function.name && JSON.stringify(native.clientInput ?? native.input) === call.function.arguments)
               if (index >= 0) pending.push({ ...remaining.splice(index, 1)[0], clientId: call.id })
             }
             if (remaining.length) throw new Error("Cloud/client tool correlation failed")
@@ -248,9 +249,9 @@ function cloudBody(body, spec, nativeCalls, controller, signal, idle) {
             for (const [key, value] of Object.entries(tool.input ?? {})) call.input[key] = content.type === "FUNCTION_CALL_PARAMS_APPEND" && typeof value === "string" ? (call.input[key] ?? "") + value : value
             live.set(tool.id, call)
             if (content.type === "FUNCTION_CALL_END") {
-              if (!spec.enabled || !spec.byName.has(call.name)) throw new Error(`Comate requested a tool the client did not offer: ${call.name}`)
-              nativeCalls.push(call)
-              completed.push({ name: call.name, arguments: call.input })
+              const clientCall = clientToolCall(call, spec)
+              nativeCalls.push({ ...call, clientName: spec.byName.get(clientCall.name) ?? clientCall.name, clientInput: clientCall.input })
+              completed.push({ name: clientCall.name, arguments: clientCall.input })
               live.delete(tool.id)
               if (completed.length > 64) throw new Error("Too many cloud tool calls")
             }

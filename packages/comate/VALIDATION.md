@@ -1,3 +1,44 @@
+# 0.4.1 DeepSeek Harness list_dir interoperability — 2026-11-03
+
+The installed DeepSeek Harness headless runner reproduced the user's exact failure through
+Magpie's real gateway on 127.0.0.1:3425 and Comate GLM-5.3-Flash. The captured client catalog
+contained 25 tools, including bash, glob and read, but no list_dir. Version 0.4.0 required
+exact offered names, so Comate's native list_dir failed before client execution. This is an
+adapter interoperability bug, not a Harness filesystem error or an authentication failure.
+
+The plugin now translates an unoffered list_dir to an offered bash/Bash only when the declared
+schema accepts command and its required fields can be supplied. Directory operands are
+shell-quoted, description is included when declared, and no permission/escalation fields are
+injected. A native depth of 1–64 (integer or decimal integer string) preserves traversal intent:
+depth 1 uses ls -la, higher depths use bounded find. Unknown options, ambiguous operands,
+invalid depth, missing compatible client tools, and tool_choice:none remain explicit errors.
+The client executes the command. Result correlation retains the original cloud list_dir
+name, ID and parameters, including depth; no fabricated result and no desktop-service fallback.
+
+Real installed DeepSeek Harness verification (same headless profile, temporary workspace,
+per-run provider/model overlay, expiring gateway key; existing global model settings unchanged):
+
+- Baseline 0.4.0: exit 1 with the exact unoffered list_dir message; no client call.
+- GLM-5.3-Flash fixed run: client bash call_ab0458eddf494b0998eefaf1 completed,
+  result returned, final answer listed alpha.txt, beta.txt and the probe overlay; exit 0.
+- DeepSeek-V4.1-Flash fixed run: client bash call_b73b90c1255d4eceb8b5d41c completed,
+  result returned, final answer listed the same scratch entries; exit 0.
+- An intermediate candidate rejected a model-supplied depth string; depth handling was then
+  implemented and the DeepSeek-V4.1-Flash run above passed. Only directory listings were
+  requested; no project files were edited or read during these trials.
+
+The final package suite covers streamed/non-streamed native-to-client correlation, invalid
+schemas/options, quoting metacharacters and real shell execution of a path containing quote,
+semicolon and command-substitution characters. The shell-injection fixture produced the
+expected listing and neither sentinel side effect. A bounded-depth fixture includes the
+requested nested entry. All tests and all 16 provider-hook checks pass; see the build receipt
+for the packaged revision and hashes. Earlier validation below remains historical.
+
+This does not claim arbitrary native tools can be translated, every Harness preset/model
+works, or the community accepted the previously closed PR. Production remains cloud-only.
+
+---
+
 # 0.4.0 images, native continuation and long tasks — 2026-11-02
 
 This section supersedes the 0.3.0 candidate below. Same local branch:
